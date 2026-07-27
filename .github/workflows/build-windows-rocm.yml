@@ -18,6 +18,9 @@ env:
   UPSTREAM_REPO: 'https://github.com/ciru-ai/ROCmFPX.git'
   HIPSDK_INSTALLER_VERSION: '26.Q1'
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-2022
