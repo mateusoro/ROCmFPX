@@ -2,14 +2,32 @@ name: "Windows - Setup ROCm"
 description: "Setup ROCm for Windows"
 inputs:
   version:
-    description: "ROCm version"
+    description: "ROCm version (e.g., 26.Q1)"
     required: true
 
 runs:
   using: "composite"
   steps:
     - name: Setup ROCm
-      uses: ./.github/actions/install-exe
-      with:
-        url: https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-${{ inputs.version }}-Win11-For-HIP.exe
-        args: -install
+      shell: pwsh
+      run: |
+        $version = "${{ inputs.version }}"
+        Write-Host "Installing ROCm HIP SDK $version..." -ForegroundColor Cyan
+        
+        # Map version to filename
+        $url = "https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-${version}-Win11-For-HIP.exe"
+        $installer = "$env:TEMP\rocm-installer.exe"
+        
+        Write-Host "Downloading from: $url"
+        curl.exe -L -o $installer $url --retry 3 --retry-delay 5
+        
+        Write-Host "Installing..."
+        Start-Process -FilePath $installer -ArgumentList "-install" -Wait -NoNewWindow
+        
+        # Verify installation
+        $rocPath = Get-ChildItem 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' | Select-Object -First 1
+        if ($rocPath) {
+            Write-Host "ROCm installed: $($rocPath.FullName)" -ForegroundColor Green
+        } else {
+            throw "ROCm installation failed"
+        }
