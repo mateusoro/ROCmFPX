@@ -1,3 +1,11 @@
+> **⚠️ Fork para compilação Windows ROCm**
+>
+> Este fork é utilizado apenas para compilar os binários Windows com suporte ROCm/HIP
+> para a placa **AMD Radeon RX 7800 XT**. O código original está em
+> [ciru-ai/ROCmFPX](https://github.com/ciru-ai/ROCmFPX).
+
+---
+
 # ROCmFPX for llama.cpp
 
 ROCmFPX adds experimental AMD-focused 3-, 4-, 6-, and 8-bit GGUF model-weight

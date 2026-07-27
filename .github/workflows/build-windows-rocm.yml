@@ -115,11 +115,26 @@ jobs:
         with:
           name: ROCmFPX-Windows-${{ env.GFX_TARGET }}
           path: ROCmFPX-windows-*.zip
-          retention-days: 30
+          retention-days: 90
 
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+      - name: Create/Update Release
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: latest-build
+          name: "Build Windows ROCm (${{ env.GFX_TARGET }})"
+          body: |
+            Build automático do ROCmFPX para Windows com ROCm/HIP.
+            
+            **GPU Target:** ${{ env.GFX_TARGET }}
+            **ROCm Version:** 26.Q1 (7.1.1)
+            **Commit:** ${{ github.sha }}
+            
+            ### Como usar
+            1. Baixe o ZIP
+            2. Extraia em uma pasta
+            3. Execute `llama-server.exe` ou `llama-cli.exe`
+            
+            **IMPORTANTE:** NÃO defina `GGML_HIP_ENABLE_UNIFIED_MEMORY=1`
           files: ROCmFPX-windows-*.zip
-          generate_release_notes: true
+          draft: false
+          prerelease: false
