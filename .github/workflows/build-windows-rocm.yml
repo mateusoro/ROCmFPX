@@ -1,0 +1,176 @@
+name: Build Windows ROCm HIP
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  schedule:
+    - cron: '0 8 * * 1'  # Toda segunda-feira às 8h (verificar updates)
+  workflow_dispatch:
+    inputs:
+      rocm_version:
+        description: 'ROCm HIP SDK version'
+        required: false
+        default: '7.1.1'
+      gfx_target:
+        description: 'GPU architecture target (gfx1030, gfx1100, gfx1101, gfx1151, gfx1200)'
+        required: false
+        default: 'gfx1101'
+
+env:
+  ROCM_VERSION: ${{ github.event.inputs.rocm_version || '7.1.1' }}
+  GFX_TARGET: ${{ github.event.inputs.gfx_target || 'gfx1101' }}
+  UPSTREAM_REPO: 'https://github.com/ciru-ai/ROCmFPX.git'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+
+      - name: Clone upstream and apply patches
+        shell: pwsh
+        run: |
+          Write-Host "=== Clonando upstream ===" -ForegroundColor Cyan
+          
+          # Clonar upstream em diretorio temporario
+          git clone ${{ env.UPSTREAM_REPO }} upstream-temp
+          
+          # Entrar no upstream
+          Set-Location upstream-temp
+          
+          # Listar patches disponiveis no fork
+          $patchDir = "${{ github.workspace }}\patches"
+          $patches = Get-ChildItem $patchDir -Filter "*.patch" | Sort-Object Name
+          
+          Write-Host "Patches encontrados: $($patches.Count)" -ForegroundColor Yellow
+          
+          # Aplicar cada patch
+          foreach ($patch in $patches) {
+              Write-Host "Aplicando: $($patch.Name)" -ForegroundColor Green
+              try {
+                  git apply --check $patch.FullName
+                  git apply $patch.FullName
+                  Write-Host "  ✓ Patch aplicado com sucesso" -ForegroundColor Green
+              } catch {
+                  Write-Host "  ⚠ Erro ao aplicar patch: $_" -ForegroundColor Yellow
+                  # Tentar com --3way para resolver conflitos
+                  try {
+                      git apply --3way $patch.FullName
+                      Write-Host "  ✓ Patch aplicado com --3way" -ForegroundColor Green
+                  } catch {
+                      Write-Host "  ✗ Falha ao aplicar patch, continuando..." -ForegroundColor Red
+                  }
+              }
+          }
+          
+          # Copiar workflow do fork para o upstream
+          $workflowSrc = "${{ github.workspace }}\.github\workflows\build-windows-rocm.yml"
+          $workflowDst = "upstream-temp\.github\workflows\build-windows-rocm.yml"
+          if (Test-Path $workflowSrc) {
+              New-Item -Path "upstream-temp\.github\workflows" -ItemType Directory -Force | Out-Null
+              # Nao copiar o proprio workflow para evitar loop
+          }
+          
+          # Voltar ao workspace e mover o upstream para a raiz
+          Set-Location "${{ github.workspace }}"
+          
+          # Limpar diretorio atual (exceto .git e patches)
+          Get-ChildItem -Exclude ".git","patches" | Remove-Item -Recurse -Force
+          
+          # Mover conteudo do upstream
+          Copy-Item "upstream-temp\*" "." -Recurse -Force
+          Copy-Item "upstream-temp\.*" "." -Force -ErrorAction SilentlyContinue
+          
+          # Remover temporario
+          Remove-Item "upstream-temp" -Recurse -Force
+          
+          Write-Host "=== Upstream clonado e patches aplicados ===" -ForegroundColor Cyan
+          git status
+
+      - name: Setup ROCm HIP SDK
+        shell: pwsh
+        run: |
+          Write-Host "Downloading ROCm HIP SDK ${{ env.ROCM_VERSION }}..." -ForegroundColor Cyan
+          $url = "https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-${{ env.ROCM_VERSION }}-Win11-For-HIP.exe"
+          $installer = "$env:TEMP\rocm-installer.exe"
+
+          # Download com retry
+          $maxRetries = 3
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            try {
+              Write-Host "Download attempt $i of $maxRetries..."
+              curl.exe -L -o $installer $url --retry 3 --retry-delay 5
+              break
+            } catch {
+              if ($i -eq $maxRetries) { throw }
+              Start-Sleep -Seconds 10
+            }
+          }
+
+          Write-Host "Installing ROCm HIP SDK..." -ForegroundColor Cyan
+          Start-Process -FilePath $installer -ArgumentList "-install" -Wait -NoNewWindow
+          Write-Host "ROCm HIP SDK installed successfully." -ForegroundColor Green
+
+      - name: Setup Visual Studio Build Tools
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup Ninja
+        run: choco install ninja -y
+
+      - name: Configure and Build
+        shell: pwsh
+        env:
+          ROCM_PATH: 'C:\Program Files\AMD\ROCm\7.1'
+        run: |
+          $env:PATH = "$env:ROCM_PATH\bin;C:\Program Files\Ninja;$env:PATH"
+
+          Write-Host "Building for target: ${{ env.GFX_TARGET }}" -ForegroundColor Cyan
+          Write-Host "ROCm Path: $env:ROCM_PATH" -ForegroundColor Cyan
+
+          # Configure
+          cmake -S . -B build `
+            -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER="$env:ROCM_PATH/bin/clang.exe" `
+            -DCMAKE_CXX_COMPILER="$env:ROCM_PATH/bin/clang++.exe" `
+            -DGGML_HIP=ON `
+            -DGGML_HIP_FORCE_MMQ=ON `
+            -DGGML_VULKAN=OFF `
+            -DGGML_CUDA=OFF `
+            -DCMAKE_HIP_ARCHITECTURES=${{ env.GFX_TARGET }} `
+            -DGPU_TARGETS=${{ env.GFX_TARGET }} `
+            -DLLAMA_BUILD_SERVER=ON `
+            -DLLAMA_BUILD_WEBUI=OFF `
+            -DLLAMA_BUILD_TESTS=OFF
+
+          # Build
+          cmake --build build -j 8
+
+          Write-Host "Build completed successfully." -ForegroundColor Green
+
+      - name: Create release archive
+        shell: pwsh
+        run: |
+          $archiveName = "ROCmFPX-windows-x64-rocm${{ env.ROCM_VERSION }}-${{ env.GFX_TARGET }}.zip"
+          Compress-Archive -Path "build\bin\*.exe", "build\bin\*.dll" -DestinationPath $archiveName
+          Write-Host "Created archive: $archiveName" -ForegroundColor Green
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ROCmFPX-Windows-ROCm${{ env.ROCM_VERSION }}-${{ env.GFX_TARGET }}
+          path: ROCmFPX-windows-*.zip
+          retention-days: 30
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ROCmFPX-windows-*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
