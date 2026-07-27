@@ -9,16 +9,16 @@ on:
   workflow_dispatch:
     inputs:
       rocm_version:
-        description: 'ROCm HIP SDK version'
+        description: 'ROCm HIP SDK version (6.4.2 for Win Server 2022)'
         required: false
-        default: '7.1.1'
+        default: '6.4.2'
       gfx_target:
         description: 'GPU architecture target (gfx1030, gfx1100, gfx1101, gfx1151, gfx1200)'
         required: false
         default: 'gfx1101'
 
 env:
-  ROCM_VERSION: ${{ github.event.inputs.rocm_version || '7.1.1' }}
+  ROCM_VERSION: ${{ github.event.inputs.rocm_version || '6.4.2' }}
   GFX_TARGET: ${{ github.event.inputs.gfx_target || 'gfx1101' }}
   UPSTREAM_REPO: 'https://github.com/ciru-ai/ROCmFPX.git'
 
@@ -104,7 +104,7 @@ jobs:
       - name: Configure and Build
         shell: pwsh
         env:
-          ROCM_PATH: 'C:\Program Files\AMD\ROCm\7.1'
+          ROCM_PATH: 'C:\Program Files\AMD\ROCm\6.4'
         run: |
           $env:PATH = "$env:ROCM_PATH\bin;C:\Program Files\Ninja;$env:PATH"
 
