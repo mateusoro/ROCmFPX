@@ -5,7 +5,7 @@ on:
     branches: [main]
     tags: ['v*']
   schedule:
-    - cron: '0 8 * * 1'  # Toda segunda-feira às 8h (verificar updates)
+    - cron: '0 8 * * 1'  # Toda segunda-feira às 8h
   workflow_dispatch:
     inputs:
       rocm_version:
@@ -57,35 +57,30 @@ jobs:
                   Write-Host "  ✓ Patch aplicado com sucesso" -ForegroundColor Green
               } catch {
                   Write-Host "  ⚠ Erro ao aplicar patch: $_" -ForegroundColor Yellow
-                  # Tentar com --3way para resolver conflitos
                   try {
                       git apply --3way $patch.FullName
                       Write-Host "  ✓ Patch aplicado com --3way" -ForegroundColor Green
                   } catch {
-                      Write-Host "  ✗ Falha ao aplicar patch, continuando..." -ForegroundColor Red
+                      Write-Host "  ✗ Falha ao aplicar patch" -ForegroundColor Red
                   }
               }
           }
           
-          # Copiar workflow do fork para o upstream
-          $workflowSrc = "${{ github.workspace }}\.github\workflows\build-windows-rocm.yml"
-          $workflowDst = "upstream-temp\.github\workflows\build-windows-rocm.yml"
-          if (Test-Path $workflowSrc) {
-              New-Item -Path "upstream-temp\.github\workflows" -ItemType Directory -Force | Out-Null
-              # Nao copiar o proprio workflow para evitar loop
-          }
-          
-          # Voltar ao workspace e mover o upstream para a raiz
+          # Voltar ao workspace
           Set-Location "${{ github.workspace }}"
           
           # Limpar diretorio atual (exceto .git e patches)
           Get-ChildItem -Exclude ".git","patches" | Remove-Item -Recurse -Force
           
-          # Mover conteudo do upstream
+          # Mover conteudo do upstream (SEM deletar upstream-temp ainda)
           Copy-Item "upstream-temp\*" "." -Recurse -Force
-          Copy-Item "upstream-temp\.*" "." -Force -ErrorAction SilentlyContinue
           
-          # Remover temporario
+          # Copiar arquivos ocultos
+          Get-ChildItem "upstream-temp" -Force | Where-Object { $_.Name -match '^\.' } | ForEach-Object {
+              Copy-Item $_.FullName "." -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          
+          # Agora sim remover temporario
           Remove-Item "upstream-temp" -Recurse -Force
           
           Write-Host "=== Upstream clonado e patches aplicados ===" -ForegroundColor Cyan
@@ -98,7 +93,6 @@ jobs:
           $url = "https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-${{ env.ROCM_VERSION }}-Win11-For-HIP.exe"
           $installer = "$env:TEMP\rocm-installer.exe"
 
-          # Download com retry
           $maxRetries = 3
           for ($i = 1; $i -le $maxRetries; $i++) {
             try {
@@ -131,7 +125,6 @@ jobs:
           Write-Host "Building for target: ${{ env.GFX_TARGET }}" -ForegroundColor Cyan
           Write-Host "ROCm Path: $env:ROCM_PATH" -ForegroundColor Cyan
 
-          # Configure
           cmake -S . -B build `
             -G "Ninja" `
             -DCMAKE_BUILD_TYPE=Release `
@@ -147,7 +140,6 @@ jobs:
             -DLLAMA_BUILD_WEBUI=OFF `
             -DLLAMA_BUILD_TESTS=OFF
 
-          # Build
           cmake --build build -j 8
 
           Write-Host "Build completed successfully." -ForegroundColor Green
