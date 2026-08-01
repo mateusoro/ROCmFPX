@@ -4,17 +4,23 @@ Comando literal para iniciar o servidor (llama-server, build ROCmFPX de 2026-08-
 
 ## Pré-requisito: PATH do ROCm
 
-O exe exige o runtime ROCm no PATH (sem isso: `STATUS_DLL_NOT_FOUND`):
+O exe exige o runtime ROCm no PATH (sem isso: `STATUS_DLL_NOT_FOUND`).
+O caminho `C:\Program Files\AMD\ROCm\7.1\bin` **já foi adicionado ao PATH global do sistema** (01/08/2026) — basta abrir um **novo** terminal.
+
+Fallback (se um terminal antigo não pegar):
 
 ```bat
 set PATH=C:\Program Files\AMD\ROCm\7.1\bin;%PATH%
 ```
 
-## Comando completo
+## Comando completo (PowerShell — 1 linha)
 
-```bat
-"C:\Users\Administrador\ROCmFPX-built-20260801\llama-server.exe" -m C:\Users\Administrador\.lmstudio\models\maczzinatui\Qwythos-9B-Claude-Mythos-5-1M-MTP-ROCmFP4-COHERENT-GGUF\Qwythos-9B-Claude-Mythos-5-1M-MTP-ROCmFP4-COHERENT.gguf -c 120000 -ctk turbo4 -ctv turbo4 -ngl 999 -dev ROCm0 -fa on --jinja --spec-type draft-mtp --spec-draft-n-max 6 --spec-draft-p-min 0.6 --host 127.0.0.1 --port 1234 --alias lms
+```powershell
+& "C:\Users\Administrador\ROCmFPX-built-20260801\llama-server.exe" -m "C:\Users\Administrador\.lmstudio\models\maczzinatui\Qwythos-9B-Claude-Mythos-5-1M-MTP-ROCmFP4-COHERENT-GGUF\Qwythos-9B-Claude-Mythos-5-1M-MTP-ROCmFP4-COHERENT.gguf" -c 120000 -ctk turbo4 -ctv turbo4 -ngl 999 -dev ROCm0 -fa on --jinja --spec-type draft-mtp --spec-draft-n-max 6 --spec-draft-p-min 0.6 --host 127.0.0.1 --port 1234 --alias lms
 ```
+
+> **PowerShell:** o `&` antes do caminho é obrigatório (sem ele: `Token '-m' inesperado`).
+> **CMD:** o mesmo comando funciona sem o `&`.
 
 ## Explicação dos parâmetros
 
@@ -35,7 +41,7 @@ set PATH=C:\Program Files\AMD\ROCm\7.1\bin;%PATH%
 
 ## Como usar
 
-1. Execute o comando acima (num terminal com o PATH do ROCm setado).
+1. Cole o comando acima no PowerShell (terminal **novo**, para pegar o PATH global).
 2. Aguarde até o log mostrar `server is listening on http://127.0.0.1:1234`.
 3. Use qualquer cliente OpenAI-compatível com:
 
