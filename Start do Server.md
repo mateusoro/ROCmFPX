@@ -22,14 +22,15 @@ set PATH=C:\Program Files\AMD\ROCm\7.1\bin;%PATH%
 > **PowerShell:** o `&` antes do caminho é obrigatório (sem ele: `Token '-m' inesperado`).
 > **CMD:** o mesmo comando funciona sem o `&`.
 
-## Comando alternativo — Grug-12B-ROCmFP4_FAST (sem MTP)
+## Comando alternativo — Grug-12B-ROCmFP4_FAST (sem MTP, sem TurboQuant)
 
-Mesma base, mas com o modelo **Grug-12B-ROCmFP4_FAST.gguf** (6,34 GB) e **sem** as flags de MTP (o modelo não tem head MTP):
+Mesma base, com o modelo **Grug-12B-ROCmFP4_FAST.gguf** (6,34 GB), **sem** MTP e **sem TurboQuant** (turbo4 não se aplica a este modelo), com parâmetros de sampling configurados:
 
 ```powershell
-& "C:\Users\Administrador\ROCmFPX-built-20260801\llama-server.exe" -m "C:\Users\Administrador\.lmstudio\models\maczzinatui\Grug-12B-ROCmFP4_FAST-GGUF\Grug-12B-ROCmFP4_FAST.gguf" -c 120000 -ctk turbo4 -ctv turbo4 -ngl 999 -dev ROCm0 -fa on --jinja --host 127.0.0.1 --port 1234 --alias lms
+& "C:\Users\Administrador\ROCmFPX-built-20260801\llama-server.exe" -m "C:\Users\Administrador\.lmstudio\models\maczzinatui\Grug-12B-ROCmFP4_FAST-GGUF\Grug-12B-ROCmFP4_FAST.gguf" -c 120000 -ctk q4_0 -ctv q4_0 -ngl 999 -dev ROCm0 -fa on --jinja --host 127.0.0.1 --port 1234 --alias lms --temp 0.7 --top-k 40 --top-p 0.95 --min-p 0.05 --repeat-penalty 1.05 --repeat-last-n 256
 ```
 
+> **Sampling:** `--temp 0.7` (temperatura), `--top-k 40`, `--top-p 0.95`, `--min-p 0.05`, `--repeat-penalty 1.05` (anti-repetição), `--repeat-last-n 256` (janela da penalidade). Para código/factual: `--temp 0.3–0.5`; para criativo: `--temp 0.8–1.0`.
 > Sem MTP, o decode não usa speculative decoding (mais lento que o Qwythos com MTP).
 
 ## Explicação dos parâmetros
