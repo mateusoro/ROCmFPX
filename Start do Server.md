@@ -22,6 +22,16 @@ set PATH=C:\Program Files\AMD\ROCm\7.1\bin;%PATH%
 > **PowerShell:** o `&` antes do caminho é obrigatório (sem ele: `Token '-m' inesperado`).
 > **CMD:** o mesmo comando funciona sem o `&`.
 
+## Comando alternativo — Grug-12B-ROCmFP4_FAST (sem MTP)
+
+Mesma base, mas com o modelo **Grug-12B-ROCmFP4_FAST.gguf** (6,34 GB) e **sem** as flags de MTP (o modelo não tem head MTP):
+
+```powershell
+& "C:\Users\Administrador\ROCmFPX-built-20260801\llama-server.exe" -m "C:\Users\Administrador\.lmstudio\models\maczzinatui\Grug-12B-ROCmFP4_FAST-GGUF\Grug-12B-ROCmFP4_FAST.gguf" -c 120000 -ctk turbo4 -ctv turbo4 -ngl 999 -dev ROCm0 -fa on --jinja --host 127.0.0.1 --port 1234 --alias lms
+```
+
+> Sem MTP, o decode não usa speculative decoding (mais lento que o Qwythos com MTP).
+
 ## Explicação dos parâmetros
 
 | Parâmetro | Valor | O que faz |
