@@ -33,6 +33,16 @@ Mesma base, com o modelo **Grug-12B-ROCmFP4_FAST.gguf** (6,34 GB), **sem** MTP e
 > **Sampling:** `--temp 0.7` (temperatura), `--top-k 40`, `--top-p 0.95`, `--min-p 0.05`, `--repeat-penalty 1.05` (anti-repetição), `--repeat-last-n 256` (janela da penalidade). Para código/factual: `--temp 0.3–0.5`; para criativo: `--temp 0.8–1.0`.
 > Sem MTP, o decode não usa speculative decoding (mais lento que o Qwythos com MTP).
 
+## Comando alternativo — Qwen3.5-9B-ROCMFP4-COHERENT (sem MTP)
+
+Mesma base, com o modelo **Qwen3.5-9B-ROCMFP4-COHERENT.gguf** (5,31 GB, quantizado a partir do BF16 do `unsloth/Qwen3.5-9B-GGUF`):
+
+```powershell
+& "C:\Users\Administrador\ROCmFPX-built-20260801\llama-server.exe" -m "C:\Users\Administrador\.lmstudio\models\unsloth\Qwen3.5-9B-GGUF\Qwen3.5-9B-ROCMFP4-COHERENT.gguf" -c 120000 -ctk turbo4 -ctv turbo4 -ngl 999 -dev ROCm0 -fa on --jinja --host 127.0.0.1 --port 1234 --alias lms
+```
+
+> **Sem MTP:** este GGUF **não** tem head MTP/NextN (verificado — a quantização termina em blk.31, sem tensores mtp), então não use `--spec-type draft-mtp`. Para resposta direta sem raciocínio (o modelo gera `reasoning_content`), adicione `--reasoning off`.
+
 ## Explicação dos parâmetros
 
 | Parâmetro | Valor | O que faz |
