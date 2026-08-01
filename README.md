@@ -4,6 +4,27 @@
 > para a placa **AMD Radeon RX 7800 XT**. O código original está em
 > [ciru-ai/ROCmFPX](https://github.com/ciru-ai/ROCmFPX).
 
+## Build automático (GitHub Actions)
+
+A compilação dos binários Windows é feita de forma automática no **GitHub Actions**
+deste repositório — não é necessário compilar localmente.
+
+- **Workflow:** `.github/workflows/build-windows-rocm.yml`
+- **Disparo:** push na branch `main`, tags `v*`, agendamento semanal (segunda às 08:00) e manualmente via **Run workflow** (com `gfx_target` configurável)
+- **GPU target:** `gfx1101` (AMD Radeon RX 7800 XT)
+- **Toolchain:** ROCm HIP SDK 26.Q1 (7.1.1) + clang, CMake/Unix Makefiles, `GGML_HIP=ON` e `GGML_HIP_FORCE_MMQ=ON`
+- **Fluxo:** clona o upstream `ciru-ai/ROCmFPX`, aplica os patches de `patches/`, compila e empacota
+
+**Resultado:** o workflow publica o ZIP `ROCmFPX-windows-x64-gfx1101.zip` como artefato e como **Release** com a tag `latest-build`.
+
+### Como usar o build pronto
+
+1. Baixe o ZIP na [Release `latest-build`](https://github.com/mateusoro/ROCmFPX/releases/tag/latest-build) (ou no artefato do workflow)
+2. Extraia em uma pasta
+3. Execute `llama-server.exe` ou `llama-cli.exe`
+
+> **IMPORTANTE:** NÃO defina `GGML_HIP_ENABLE_UNIFIED_MEMORY=1` ao executar os binários.
+
 ---
 
 # ROCmFPX for llama.cpp
