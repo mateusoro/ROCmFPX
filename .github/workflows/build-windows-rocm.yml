@@ -106,7 +106,7 @@ jobs:
           Write-Host "HIP Path: $env:HIP_PATH" -ForegroundColor Cyan
           Write-Host "Target: ${{ env.GFX_TARGET }}" -ForegroundColor Cyan
 
-          cmake -G "Unix Makefiles" -B build -S . `
+          cmake -G "Ninja" -B build -S . `
             -DCMAKE_C_COMPILER="$env:HIP_PATH\bin\clang.exe" `
             -DCMAKE_CXX_COMPILER="$env:HIP_PATH\bin\clang++.exe" `
             -DCMAKE_BUILD_TYPE=Release `
