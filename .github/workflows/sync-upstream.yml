@@ -1,0 +1,81 @@
+name: Sync Upstream && Auto Build
+
+# 1x por semana (segunda 08:00 UTC):
+#  - busca TODOS os commits novos de charlie12345/ROCmFPX (upstream) na branch main
+#  - se houver commit novo -> merge para atualizar o fork (código upstream intacto)
+#  - se houver commit novo -> dispara o build (build-windows-rocm.yml), que cria release nova
+# Sem commits novos -> nada é feito (sem gastar minutos de build)
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout fork (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/charlie12345/ROCmFPX.git
+          git fetch upstream main --unshallow --tags 2>&1 | tail -5 || git fetch upstream main
+          echo "LOCAL_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "UPSTREAM_HEAD=$(git rev-parse upstream/main)" >> "$GITHUB_ENV"
+
+      - name: Check for new commits
+        id: check
+        run: |
+          if [ "$LOCAL_HEAD" = "$UPSTREAM_HEAD" ]; then
+            echo "No new commits: local == upstream ($LOCAL_HEAD)"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New commits available:"
+            git log --oneline "$LOCAL_HEAD".."$UPSTREAM_HEAD" | head -20
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "AHEAD=$(git rev-list --count $LOCAL_HEAD..$UPSTREAM_HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream (keep fork's workflows/patches)
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Merge com preferencia pelas versoes do fork (.github/workflows/build-windows-rocm.yml e patches/)
+          git merge --no-ff upstream/main -m "chore: sync upstream $(git rev-parse --short upstream/main)" -X theirs
+          git push origin main
+          echo "SYNCED_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "SYNCED_SHORT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Dispatch auto build (new release)
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build-windows-rocm.yml --ref main
+          echo "Build workflow dispatched (run após merge do upstream)."
+          echo "AHEAD_COMMITS=${{ steps.check.outputs.AHEAD }}" >> "$GITHUB_ENV"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Resumo do sync" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.check.outputs.changed }}" = "true" ]; then
+            echo "- Commits novos do upstream: **${{ steps.check.outputs.AHEAD }}**" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Merge aplicado em **$(git rev-parse --short HEAD 2>/dev/null || echo '...')**" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Build release disparado **automaticamente**" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Workflows do fork mantidos (build-windows-rocm.yml + patches)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Sem commits novos no upstream. Nada a fazer. ✅" >> "$GITHUB_STEP_SUMMARY"
+          fi

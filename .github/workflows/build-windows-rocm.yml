@@ -1,0 +1,266 @@
+name: Build Windows ROCm HIP
+
+# Build variação do ROCmFPX (upstream charlie12345/ROCmFPX) para Windows+Linux.
+# Cria uma NOVA release a cada execução (tag build-<run_number>).
+# Disparado manualmente (workflow_dispatch), por push em main, ou automaticamente
+# pelo workflow sync-upstream (que só chama quando há commits novos no upstream).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      gfx_target:
+        description: 'GPU architecture target'
+        required: false
+        default: 'gfx1101'
+      linux_rocm_version:
+        description: 'ROCm version for the Linux build (rocm-hip-sdk via repo.radeon.com/rocm/apt, e.g. 7.2.1)'
+        required: false
+        default: '7.2.1'
+
+env:
+  GFX_TARGET: ${{ github.event.inputs.gfx_target || 'gfx1101' }}
+  UPSTREAM_REPO: 'https://github.com/charlie12345/ROCmFPX.git'
+  HIPSDK_INSTALLER_VERSION: '26.Q1'
+  ROCM_LINUX_VERSION: ${{ github.event.inputs.linux_rocm_version || '7.2.1' }}
+  # Nova release a cada execução: run_number é único por execução do workflow.
+  RELEASE_TAG: 'build-${{ github.run_number }}'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+
+      - name: Clone upstream and apply patches
+        shell: pwsh
+        run: |
+          Write-Host "=== Clonando upstream ===" -ForegroundColor Cyan
+          git clone ${{ env.UPSTREAM_REPO }} upstream-temp
+
+          $patches = @(Get-ChildItem "patches" -Filter "*.patch" -ErrorAction SilentlyContinue) | Sort-Object Name
+          Write-Host "Patches: $($patches.Count)" -ForegroundColor Yellow
+
+          Set-Location upstream-temp
+          $PSNativeCommandUseErrorActionPreference = $false
+          foreach ($patch in $patches) {
+              $patchPath = "${{ github.workspace }}\patches\$($patch.Name)"
+              Write-Host "Aplicando: $($patch.Name)" -ForegroundColor Green
+              git apply --check $patchPath 2>$null
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Host "   ⚠ Patch '$($patch.Name)' não aplica no upstream atual; pulando (pode já estar corrigido upstream)" -ForegroundColor Yellow
+                  continue
+              }
+              git apply $patchPath 2>&1
+          }
+          Set-Location "${{ github.workspace }}"
+
+          # Copiar upstream para cima do fork
+          $items = Get-ChildItem upstream-temp -Force
+          foreach ($item in $items) {
+              if ($item.Name -eq ".git" -or $item.Name -eq "patches") { continue }
+              $dest = Join-Path "${{ github.workspace }}" $item.Name
+              if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+              Copy-Item $item.FullName $dest -Recurse -Force
+          }
+          Remove-Item upstream-temp -Recurse -Force
+          Write-Host "=== Pronto ===" -ForegroundColor Cyan
+          # Reseta o exit code: git apply --check de patch pulado deixa $LASTEXITCODE=1
+          exit 0
+
+      - name: Use ROCm Installation Cache
+        uses: actions/cache@v5
+        id: cache-rocm
+        with:
+          path: C:\Program Files\AMD\ROCm
+          key: cache-rocm-${{ env.HIPSDK_INSTALLER_VERSION }}-${{ runner.os }}
+
+      - name: Setup ROCm
+        if: steps.cache-rocm.outputs.cache-hit != 'true'
+        uses: ./.github/actions/windows-setup-rocm
+        with:
+          version: ${{ env.HIPSDK_INSTALLER_VERSION }}
+
+      - name: Verify ROCm
+        run: |
+          $clangPath = Get-ChildItem 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' | Select-Object -First 1
+          if (-not $clangPath) { throw "ROCm not found" }
+          & $clangPath.FullName --version
+
+      - name: Setup Ninja
+        run: choco install ninja -y
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $env:HIP_PATH = (Resolve-Path 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' | Split-Path | Split-Path)
+          $env:CMAKE_PREFIX_PATH = $env:HIP_PATH
+
+          Write-Host "HIP Path: $env:HIP_PATH" -ForegroundColor Cyan
+          Write-Host "Target: ${{ env.GFX_TARGET }}" -ForegroundColor Cyan
+
+          cmake -G "Unix Makefiles" -B build -S . `
+            -DCMAKE_C_COMPILER="$env:HIP_PATH\bin\clang.exe" `
+            -DCMAKE_CXX_COMPILER="$env:HIP_PATH\bin\clang++.exe" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DGGML_HIP=ON `
+            -DGGML_HIP_FORCE_MMQ=ON `
+            -DGGML_VULKAN=OFF `
+            -DGGML_CUDA=OFF `
+            -DGPU_TARGETS="${{ env.GFX_TARGET }}" `
+            -DLLAMA_BUILD_SERVER=ON `
+            -DLLAMA_BUILD_WEBUI=OFF `
+            -DLLAMA_BUILD_TESTS=OFF
+
+          cmake --build build -j ${env:NUMBER_OF_PROCESSORS}
+          Write-Host "Build OK" -ForegroundColor Green
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $archive = "ROCmFPX-windows-x64-${{ env.GFX_TARGET }}.zip"
+          Compress-Archive -Path "build\bin\*.exe", "build\bin\*.dll" -DestinationPath $archive
+          Write-Host "Archive: $archive" -ForegroundColor Green
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ROCmFPX-Windows-${{ env.GFX_TARGET }}
+          path: ROCmFPX-windows-*.zip
+          retention-days: 90
+
+      - name: Create/Update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Build Windows ROCm (${{ env.GFX_TARGET }}) #${{ github.run_number }}"
+          body: |
+            Build automático do ROCmFPX para Windows com ROCm/HIP.
+
+            **GPU Target:** ${{ env.GFX_TARGET }}
+            **ROCm Version:** 26.Q1 (7.1.1)
+            **Commit:** ${{ github.sha }}
+            **Release Tag:** ${{ env.RELEASE_TAG }}
+
+            ### Como usar
+            1. Baixe o ZIP
+            2. Extraia em uma pasta
+            3. Execute `llama-server.exe` ou `llama-cli.exe`
+
+            **IMPORTANTE:** NÃO defina `GGML_HIP_ENABLE_UNIFIED_MEMORY=1`
+          files: ROCmFPX-windows-*.zip
+          draft: false
+          prerelease: false
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+
+      - name: Clone upstream and apply patches
+        shell: bash
+        run: |
+          set -e
+          git clone ${{ env.UPSTREAM_REPO }} upstream-temp
+          cd upstream-temp
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            [ -e "$patch" ] || continue
+            if git apply --check "$patch" >/dev/null 2>&1; then
+              git apply "$patch"
+            else
+              echo "WARN: patch $(basename "$patch") does not apply to current upstream; skipping (likely already fixed upstream)"
+            fi
+          done
+          cd "$GITHUB_WORKSPACE"
+          shopt -s dotglob
+          for item in upstream-temp/*; do
+            name="$(basename "$item")"
+            if [ "$name" = ".git" ] || [ "$name" = "patches" ]; then
+              continue
+            fi
+            rm -rf "$GITHUB_WORKSPACE/$name"
+            cp -r "$item" "$GITHUB_WORKSPACE/$name"
+          done
+          rm -rf upstream-temp
+
+      - name: Free up disk space
+        uses: ggml-org/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+
+      - name: Setup ROCm (apt)
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo mkdir -p /etc/apt/keyrings
+          wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key \
+            | gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg >/dev/null
+          sudo tee /etc/apt/sources.list.d/rocm.list >/dev/null <<EOF
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/${{ env.ROCM_LINUX_VERSION }} jammy main
+          EOF
+          sudo tee /etc/apt/preferences.d/rocm-pin-600 >/dev/null <<EOF
+          Package: *
+          Pin: release o=repo.radeon.com
+          Pin-Priority: 600
+          EOF
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential cmake git wget libssl-dev rocm-hip-sdk
+
+      - name: Verify ROCm
+        shell: bash
+        run: |
+          hipconfig --version
+          hipconfig -l
+
+      - name: Configure and Build
+        shell: bash
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_HIP_COMPILER="$(hipconfig -l)/clang" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_HIP=ON \
+            -DGGML_HIP_FORCE_MMQ=ON \
+            -DHIP_PLATFORM=amd \
+            -DGGML_VULKAN=OFF \
+            -DGGML_CUDA=OFF \
+            -DGPU_TARGETS="${{ env.GFX_TARGET }}" \
+            -DLLAMA_BUILD_SERVER=ON \
+            -DLLAMA_BUILD_WEBUI=OFF \
+            -DLLAMA_BUILD_TESTS=OFF
+          cmake --build build -j $(nproc)
+          echo "Build completed successfully."
+
+      - name: Create release archive
+        shell: bash
+        run: |
+          archive="ROCmFPX-linux-x64-rocm${{ env.ROCM_LINUX_VERSION }}-${{ env.GFX_TARGET }}.tar.gz"
+          cp LICENSE build/bin/ 2>/dev/null || true
+          tar -czvf "$archive" -C build/bin .
+          echo "Archive: $archive"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ROCmFPX-Linux-${{ env.GFX_TARGET }}
+          path: ROCmFPX-linux-*.tar.gz
+          retention-days: 90
+
+      - name: Attach Linux build to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: ROCmFPX-linux-*.tar.gz
+          preserve_order: true
+          draft: false
+          prerelease: false
