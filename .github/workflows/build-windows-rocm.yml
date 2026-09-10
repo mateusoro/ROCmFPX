@@ -27,6 +27,11 @@ env:
   # Nova release a cada execução: run_number é único por execução do workflow.
   RELEASE_TAG: 'build-${{ github.run_number }}'
 
+# Garante que apenas UM build rode por vez (o mais novo cancela os antigos).
+concurrency:
+  group: rocmfpx-build
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
