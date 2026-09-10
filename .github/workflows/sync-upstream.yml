@@ -30,7 +30,8 @@ jobs:
       - name: Fetch upstream
         run: |
           git remote add upstream https://github.com/charlie12345/ROCmFPX.git
-          git fetch upstream main --unshallow --tags 2>&1 | tail -5 || git fetch upstream main
+          # fetch-depth:0 no checkout ja traz historia completa; --unshallow falharia aqui
+          git fetch upstream main --tags
           echo "LOCAL_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "UPSTREAM_HEAD=$(git rev-parse upstream/main)" >> "$GITHUB_ENV"
 
@@ -53,8 +54,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Merge com preferencia pelas versoes do fork (.github/workflows/build-windows-rocm.yml e patches/)
-          git merge --no-ff upstream/main -m "chore: sync upstream $(git rev-parse --short upstream/main)" -X theirs
+          # Nossos arquivos (workflows + patches/) sao adicoes puras que o upstream nao tem;
+          # merge padrao resolve sem conflitos.
+          git merge --no-ff upstream/main -m "chore: sync upstream $(git rev-parse --short upstream/main)"
           git push origin main
           echo "SYNCED_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "SYNCED_SHORT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
